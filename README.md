@@ -1,1 +1,1 @@
-## Example code for showing issue with LazyConstraintCallback
+## Code for showing issue with LazyConstraintCallback
