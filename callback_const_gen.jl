@@ -6,7 +6,9 @@ function callback_const_gen(tree_model, tree_depth)
     
     opt_model = direct_model(Gurobi.Optimizer(ENV))
     set_attribute(opt_model, "OutputFlag", 0)
+    set_attribute(opt_model, "Threads", 1)
     set_attribute(opt_model, "Presolve", 0)
+    set_attribute(opt_model, "LazyConstraints", 1)
 
     # Variable definitions as well as constraints (2g) and (2h)
     @variable(opt_model, x[feat = 1:n_feats, 1:n_splits[feat]], Bin) # indicator variable x_ij for feature i <= j:th split point (2g)
@@ -25,74 +27,64 @@ function callback_const_gen(tree_model, tree_depth)
     tree_counter = 0
     function split_constraint_callback(cb_data, cb_where::Cint)
 
-        if cb_where != GRB_CB_MIPSOL && cb_where != GRB_CB_MIPNODE
-            return
-        end
-
-        if cb_where == GRB_CB_MIPNODE
-            resultP = Ref{Cint}()
-            GRBcbget(cb_data, cb_where, GRB_CB_MIPNODE_STATUS, resultP)
-            if resultP[] != GRB_OPTIMAL
-                return  # Solution is something other than optimal.
-            end
-        end
+        if cb_where == GRB_CB_MIPSOL
         
-        Gurobi.load_callback_variable_primal(cb_data, cb_where)
-        x_opt = callback_value.(cb_data, x)
-        y_opt = callback_value.(cb_data, y)
+            Gurobi.load_callback_variable_primal(cb_data, cb_where)
+            x_opt = callback_value.(cb_data, x)
+            y_opt = callback_value.(cb_data, y)
 
-        added_constraint = false
+            added_constraint = false
 
-        for tree in 1:n_trees
+            for tree in 1:n_trees
 
-            tree_counter = tree
+                tree_counter = tree
 
-            current_node = 1 # start investigating from root
-        
-            while (current_node in leaves[tree]) == false # traverse from root until hitting a leaf
-                
-                # indices for leaves left/right from current node - indexing based on y vector convention
-                right_leaves = children(current_node << 1 + 1, leaves[tree])
-                left_leaves = children(current_node << 1, leaves[tree])
+                current_node = 1 # start investigating from root
+            
+                while (current_node in leaves[tree]) == false # traverse from root until hitting a leaf
+                    
+                    # indices for leaves left/right from current node - indexing based on y vector convention
+                    right_leaves = children(current_node << 1 + 1, leaves[tree])
+                    left_leaves = children(current_node << 1, leaves[tree])
 
-                # feature and split point index associated with current node
-                current_feat, current_splitpoint_index = splits[tree, current_node]
+                    # feature and split point index associated with current node
+                    current_feat, current_splitpoint_index = splits[tree, current_node]
 
-                if x_opt[current_feat, current_splitpoint_index] == 1 # node condition true - left side chosen...
-                    if sum(y_opt[tree, right_leaves]) != 0 # ...but found from right
+                    if round(x_opt[current_feat, current_splitpoint_index]) == 1 # node condition true - left side chosen...
+                        if sum(round(y_opt[tree, leaf]) for leaf in right_leaves) > 0 # ...but found from right
 
-                        # Add constraint associated with current node (2d constraint)
-                        split_cons = @build_constraint(sum(y[tree, right_leaves]) <= 1 - x[current_feat, current_splitpoint_index])
-                        MOI.submit(opt_model, MOI.LazyConstraint(cb_data), split_cons)
-                        generated_constraints += 1
-                        added_constraint = true
-                        return
+                            # Add constraint associated with current node (2d constraint)
+                            split_cons = @build_constraint(sum(y[tree, right_leaves]) <= 1 - x[current_feat, current_splitpoint_index])
+                            MOI.submit(opt_model, MOI.LazyConstraint(cb_data), split_cons)
+                            generated_constraints += 1
+                            added_constraint = true
+                            return
 
-                    else # ...and found from left
-                        current_node = current_node << 1 # check left child - continue search
+                        else # ...and found from left
+                            current_node = current_node << 1 # check left child - continue search
+                        end
+                    else # right side chosen...
+                        if sum(round(y_opt[tree, leaf]) for leaf in left_leaves) > 0 # ...but found from left
+                            
+                            # Add constraint associated with current node (2c constraint)
+                            split_cons = @build_constraint(sum(y[tree, left_leaves]) <= x[current_feat, current_splitpoint_index])
+                            MOI.submit(opt_model, MOI.LazyConstraint(cb_data), split_cons)
+                            generated_constraints += 1
+                            added_constraint = true
+                            return
+
+                        else # ...and found from right
+                            current_node = current_node << 1 + 1 # check right child - continue search
+                        end
                     end
-                else # right side chosen...
-                    if sum(y_opt[tree, left_leaves]) != 0 # ...but found from left
-                        
-                        # Add constraint associated with current node (2c constraint)
-                        split_cons = @build_constraint(sum(y[tree, left_leaves]) <= x[current_feat, current_splitpoint_index])
-                        MOI.submit(opt_model, MOI.LazyConstraint(cb_data), split_cons)
-                        generated_constraints += 1
-                        added_constraint = true
-                        return
 
-                    else # ...and found from right
-                        current_node = current_node << 1 + 1 # check right child - continue search
-                    end
                 end
-
             end
         end
     end
 
     # Set callback for lazy split constraint generation
-    MOI.set(opt_model, MOI.RawOptimizerAttribute("LazyConstraints"), 1)
-    MOI.set(opt_model, Gurobi.CallbackFunction(), split_constraint_callback)
+    set_attribute(opt_model, Gurobi.CallbackFunction(), split_constraint_callback)
 
     optimize!(opt_model)
 

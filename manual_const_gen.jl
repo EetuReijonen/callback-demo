@@ -40,8 +40,8 @@ function manual_const_gen(tree_model, tree_depth)
                 # feature and split point index associated with current node
                 current_feat, current_splitpoint_index = splits[tree, current_node]
 
-                if x_opt[current_feat, current_splitpoint_index] == 1 # node condition true - left side chosen...
-                    if sum(y_opt[tree, right_leaves]) != 0 # ...but found from right
+                if isapprox(x_opt[current_feat, current_splitpoint_index], 1; atol = 1e-5) # node condition true - left side chosen...
+                    if sum(y_opt[tree, right_leaves]) > 0.1 # ...but found from right
 
                         # Add constraint associated with current node (2d constraint)
                         @constraint(opt_model, sum(y[tree, right_leaves]) <= 1 - x[current_feat, current_splitpoint_index])
@@ -53,7 +53,7 @@ function manual_const_gen(tree_model, tree_depth)
                         current_node = current_node << 1 # check left child - continue search
                     end
                 else # right side chosen...
-                    if sum(y_opt[tree, left_leaves]) != 0 # ...but found from left
+                    if sum(y_opt[tree, left_leaves]) > 0.1 # ...but found from left
                         
                         # Add constraint associated with current node (2c constraint)
                         @constraint(opt_model, sum(y[tree, left_leaves]) <= x[current_feat, current_splitpoint_index])

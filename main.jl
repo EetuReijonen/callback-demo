@@ -43,8 +43,8 @@ pred_test = EvoTrees.predict(model, x_test)
 
 "OPTIMIZATION"
 
-x_call, sol_call, m_call = callback_const_gen(model, 5);
-x_manual, sol_manual, m_manual = manual_const_gen(model, 5);
+@time x_call, sol_call, m_call = callback_const_gen(model, 5);
+@time x_manual, sol_manual, m_manual = manual_const_gen(model, 5);
 
 "CHECKING THE SOLUTION"
 
@@ -53,3 +53,6 @@ EvoTrees.predict(model, reshape([mean(x_manual[n]) for n in 1:n_feats], 1, n_fea
 
 sol_call
 sol_manual
+
+[mean(x_call[n]) for n in 1:n_feats]
+[mean(x_manual[n]) for n in 1:n_feats]  
